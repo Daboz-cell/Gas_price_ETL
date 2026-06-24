@@ -1,61 +1,83 @@
 import requests
 import pandas as pd
-from sqlalchemy import create_engine , text
+from sqlalchemy import create_engine , text 
+import psycopg2
+import json
+import http.client
 import os
 from dotenv import load_dotenv
 
+# load the variables from my .env file (api key, db login info etc)
 load_dotenv()
 
 
-def extract_articles():
-    url = ('https://newsapi.org/v2/everything?'
-            'q=Apple&'
-            'from=2026-06-10&to=2026-06-11&'
-            'sortBy=popularity&'
-            f'apiKey={os.getenv('NEWS_API_KEY')}')
+# this function gets the gas price data from collectapi
+def extract_city_prices():
+    conn = http.client.HTTPSConnection("api.collectapi.com")
 
-    response=requests.get(url)
+    headers = {
+    'content-type': "application/json",
+    'authorization': "apikey 73DOJDq7FlKjuF822UAlSC:0WkfGnBB37XqDqeHiYeqdv"
+    }
 
-    data=response.json()
+    # calling the state usa price endpoint for WA state
+    conn.request("GET", "/gasPrice/stateUsaPrice?state=WA", headers=headers)
 
-    return data
+    res = conn.getresponse()
+    data = res.read()
+    # decode the bytes we got back into a normal string
+    decoded_data = data.decode("utf-8")
+    return decoded_data
 
-def transform_articles(data):
-    articles_list=data['articles']
 
-    articles_df=pd.DataFrame(articles_list)
+# this function takes the raw json and turns it into a clean dataframe
+def transform_city_prices(decoded_data):
+    # convert the json string into a python dict
+    data_json = json.loads(decoded_data)
+    
+    # the cities list is nested inside result
+    cities=data_json['result']['cities']
 
-    articles_df.drop(columns=['source','urlToImage'],inplace=True)
+    # turn the list of cities into a dataframe
+    city_prices_df = pd.DataFrame(cities)
 
-    articles_df.rename(columns={'publishedAt':'published_at'},inplace=True)
+    # rename some columns to make more sense
+    city_prices_df.rename(columns={'name':'city_name','midGrade':'mid_grade'},inplace=True)
 
-    return articles_df
+    # dont need this column so drop it
+    city_prices_df.drop(columns=['lowername'],inplace=True)
 
-def load_articles(articles_df):
+    return city_prices_df
 
+
+# this function loads the dataframe into postgres
+def load_city_prices(city_prices_df):
+    # get db credentials from the .env file
     DATABASE_NAME = os.getenv('DATABASE_NAME')
     DATABASE_USER = os.getenv('DATABASE_USER')
     DATABASE_PORT = os.getenv('DATABASE_PORT')
     DATABASE_PASSWORD = os.getenv('DATABASE_PASSWORD')
     DATABASE_HOST = os.getenv('DATABASE_HOST')
 
+    # create the connection engine to the database
     engine = create_engine(f'postgresql+psycopg2://{DATABASE_USER}:{DATABASE_PASSWORD}@{DATABASE_HOST}:{DATABASE_PORT}/{DATABASE_NAME}')
 
-    with engine.connect() as conn:
-        resort = conn.execute(text('select 1;'))
-        for i in resort:
-            print(i)
+    # quick check to print out whats already in the table (commented out for now)
+    # with engine.connect() as conn:
+    #     resort = conn.execute(text('select * from city_prices;'))
+    #     for i in resort:
+    #         print(i)
 
-    articles_df.to_sql('articles',engine , if_exists='replace',index=False )
+    # write the dataframe to the city_prices table, replace if it already exists
+    city_prices_df.to_sql('city_prices',engine , if_exists='replace',index=False )
 
-
+# main function that runs everything in order
 def main():
-    data=extract_articles()
-    articles_df=transform_articles(data)
-    load_articles(articles_df)
+    decoded_data=extract_city_prices()
+    city_prices_df=transform_city_prices(decoded_data)
+    load_city_prices(city_prices_df)
 
     print('ETL process completed successfully.')
 
-
 if __name__ == "__main__":
-    main()      
+    main()
