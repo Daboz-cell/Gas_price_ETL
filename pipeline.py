@@ -8,7 +8,7 @@ import os
 from dotenv import load_dotenv
 
 # load the variables from my .env file (api key, db login info etc)
-load_dotenv()
+load_dotenv(dotenv_path="/root/Gas_price_ETL/.env")
 
 
 # this function gets the gas price data from collectapi
@@ -17,7 +17,7 @@ def extract_city_prices():
 
     headers = {
     'content-type': "application/json",
-    'authorization': "apikey 73DOJDq7FlKjuF822UAlSC:0WkfGnBB37XqDqeHiYeqdv"
+    'authorization': os.getenv("COLLECTAPI_KEY")
     }
 
     # calling the state usa price endpoint for WA state
@@ -27,6 +27,7 @@ def extract_city_prices():
     data = res.read()
     # decode the bytes we got back into a normal string
     decoded_data = data.decode("utf-8")
+    conn.close()
     return decoded_data
 
 
